@@ -68,19 +68,16 @@ puts['strike'] = puts['strike'].astype(float)
 puts['PDF(-d2)'] = puts['PDF(-d2)'].astype(float)
 
 
-#creating table for heatmap
 heatmap_calls = calls.pivot_table(
     index='strike',
     columns='expiration_date',
     values='PDF(d2)',
-    aggfunc='mean'
 )
 
 heatmap_puts = puts.pivot_table(
     index='strike',
     columns='expiration_date',
     values='PDF(-d2)',
-    aggfunc='mean'
 )
 
 
