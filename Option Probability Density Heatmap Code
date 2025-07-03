@@ -71,13 +71,13 @@ puts['PDF(-d2)'] = puts['PDF(-d2)'].astype(float)
 heatmap_calls = calls.pivot_table(
     index='strike',
     columns='expiration_date',
-    values='PDF(d2)',
+    values='PDF(d2)'
 )
 
 heatmap_puts = puts.pivot_table(
     index='strike',
     columns='expiration_date',
-    values='PDF(-d2)',
+    values='PDF(-d2)'
 )
 
 
