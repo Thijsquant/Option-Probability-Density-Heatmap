@@ -1,0 +1,100 @@
+import yfinance as yf
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from scipy.stats import norm
+
+
+#downloading and preparing data
+ticker = 'AMD'
+current_price = yf.download(tickers = ticker, interval = '1d', start=datetime.today()-timedelta(days=4))['Close'].iloc[-1].item()
+today = datetime.today()
+
+
+tk = yf.Ticker(ticker)
+expirations = tk.options
+
+end_date = datetime.strptime('2025-08-01', '%Y-%m-%d')
+
+filtered_expirations = []
+
+for exp in expirations:
+    date = datetime.strptime(exp, '%Y-%m-%d')
+    if date <= end_date:
+        filtered_expirations.append(date.strftime('%Y-%m-%d'))
+
+calls = pd.DataFrame()
+puts = pd.DataFrame()
+
+for exp in filtered_expirations:
+    option_chain = tk.option_chain(exp)
+    calls_df = option_chain.calls.copy()
+    calls_df['expiration_date'] = exp
+    calls = pd.concat([calls, calls_df], ignore_index=True)
+
+    puts_df = option_chain.puts.copy()
+    puts_df['expiration_date'] = exp
+    puts = pd.concat([puts, puts_df], ignore_index=True)
+
+calls = calls[['strike', 'impliedVolatility', 'expiration_date']]
+calls['days_to_expiration'] = calls['expiration_date'].apply(lambda x: (datetime.strptime(x, '%Y-%m-%d')-today).days/365)
+calls['current_price'] = current_price
+calls['rfr'] = 0.045
+
+puts = puts[['strike', 'impliedVolatility', 'expiration_date']]
+puts['days_to_expiration'] = puts['expiration_date'].apply(lambda x: (datetime.strptime(x, '%Y-%m-%d')-today).days/365)
+puts['current_price'] = current_price
+puts['rfr'] = 0.045
+
+
+#calculating d2 and PDF(d2)
+def calc_d2 (S, K, t, sigma, r):
+    if t <= 0 or sigma <= 0:
+        return np.nan
+    return (np.log(S / K) + (r - 0.5 * sigma ** 2) * t) / (sigma * np.sqrt(t))
+
+
+calls['d2'] = calls.apply(lambda row: calc_d2(current_price, row['strike'], row['days_to_expiration'],row['impliedVolatility'], row['rfr'] ), axis=1)
+calls['PDF(d2)'] = calls.apply(lambda row: norm.pdf(row['d2']), axis=1)
+
+puts['d2'] = puts.apply(lambda row: calc_d2(current_price, row['strike'], row['days_to_expiration'],row['impliedVolatility'], row['rfr'] ), axis=1)
+puts['PDF(-d2)'] = puts.apply(lambda row: norm.pdf(-1*row['d2']), axis=1)
+
+#heatmap
+calls['strike'] = calls['strike'].astype(float)
+calls['PDF(d2)'] = calls['PDF(d2)'].astype(float)
+
+puts['strike'] = puts['strike'].astype(float)
+puts['PDF(-d2)'] = puts['PDF(-d2)'].astype(float)
+
+
+#creating table for heatmap
+heatmap_calls = calls.pivot_table(
+    index='strike',
+    columns='expiration_date',
+    values='PDF(d2)',
+    aggfunc='mean'
+)
+
+heatmap_puts = puts.pivot_table(
+    index='strike',
+    columns='expiration_date',
+    values='PDF(-d2)',
+    aggfunc='mean'
+)
+
+
+heatmap_calls = heatmap_calls.reindex_like(heatmap_puts)
+
+combined_heatmap = heatmap_calls.combine(heatmap_puts, func=lambda c, p: np.nanmean([c, p], axis=0))
+combined_heatmap = combined_heatmap.sort_index(ascending=False)
+combined_heatmap = combined_heatmap.interpolate(axis=1).interpolate(axis=0).fillna(0)
+
+#plotting
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.figure(figsize = (12, 9))
+plt.title('Option Heatmap: ' + ticker)
+sns.heatmap(combined_heatmap, cmap='RdYlGn')
+plt.show()
